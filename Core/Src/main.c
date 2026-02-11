@@ -26,9 +26,7 @@
 #include "stm32_lcd.h"
 #include "app_fuseprogramming.h"
 #include "stm32_lcd_ex.h"
-#include "app_postprocess.h"
-#include "stai.h"
-#include "stai_network.h"
+
 #include "app_camerapipeline.h"
 #include "main.h"
 #include <stdio.h>
@@ -92,30 +90,10 @@ const uint32_t colors[NUMBER_COLORS] = {
     UTIL_LCD_COLOR_ORANGE
 };
 
-#if POSTPROCESS_TYPE == POSTPROCESS_OD_YOLO_V2_UI
-  od_yolov2_pp_static_param_t pp_params;
-#elif POSTPROCESS_TYPE == POSTPROCESS_OD_YOLO_V5_UU
-  od_yolov5_pp_static_param_t pp_params;
-#elif POSTPROCESS_TYPE == POSTPROCESS_OD_YOLO_V8_UI
-  od_yolov8_pp_static_param_t pp_params;
-#elif POSTPROCESS_TYPE == POSTPROCESS_OD_ST_YOLOX_UI
-  od_st_yolox_pp_static_param_t pp_params;
-#elif POSTPROCESS_TYPE == POSTPROCESS_OD_SSD_UI
-  od_ssd_pp_static_param_t pp_params;
-#elif POSTPROCESS_TYPE == POSTPROCESS_OD_ST_YOLOD_UI
-  od_yolo_d_pp_static_param_t pp_params;
-#elif POSTPROCESS_TYPE == POSTPROCESS_OD_BLAZEFACE_UI
-  od_blazeface_pp_static_param_t pp_params;
-#else
-  #error "PostProcessing type not supported"
-#endif
-
 UART_HandleTypeDef huart1;
 volatile int32_t cameraFrameReceived;
-stai_ptr nn_in;
 BSP_LCD_LayerConfig_t LayerConfig = {0};
 void* pp_input;
-od_pp_out_t pp_output;
 
 #define ALIGN_TO_16(value) (((value) + 15) & ~15)
 
@@ -130,8 +108,12 @@ uint8_t dcmipp_out_nn[DCMIPP_OUT_NN_BUFF_LEN];
 uint8_t *dcmipp_out_nn;
 #endif
 
-/* model */
-STAI_NETWORK_CONTEXT_DECLARE(network_context, STAI_NETWORK_CONTEXT_SIZE)
+__attribute__ ((section (".psram_bss")))
+__attribute__ ((aligned (32)))
+uint8_t nn_in[1000 * 1000 * 6]; // needs to be aligned on 32 bytes for DCMIPP output buffer
+
+extern DCMIPP_HandleTypeDef hcamera_dcmipp;
+
 /* Lcd Background Buffer */
 __attribute__ ((section (".psram_bss")))
 __attribute__ ((aligned (32)))
@@ -144,17 +126,13 @@ static int lcd_fg_buffer_rd_idx;
 
 static void SystemClock_Config(void);
 static void CONSOLE_Config(void);
-static void NPURam_enable(void);
-static void NPUCache_config(void);
-static void Display_NetworkOutput(od_pp_out_t *p_postprocess, uint32_t inference_ms);
+static void GPIO_Config(void);  
 static void LCD_init(void);
 static void Security_Config(void);
 static void set_clk_sleep_mode(void);
 static void IAC_Config(void);
 static void Display_WelcomeScreen(void);
 static void Hardware_init(void);
-static void Run_Inference(stai_network *network_instance);
-static void NeuralNetwork_init(uint32_t *nn_in_length, stai_ptr *nn_out, stai_size *number_output, int32_t nn_out_len[]);
 
 
 /**
@@ -178,84 +156,43 @@ int main(void)
   printf("Compiler: Unknown\n");
 #endif
   printf("HAL: %lu.%lu.%lu\n", __STM32N6xx_HAL_VERSION_MAIN, __STM32N6xx_HAL_VERSION_SUB1, __STM32N6xx_HAL_VERSION_SUB2);
-  printf("STEdgeAI Tools: %d.%d.%d\n", STAI_TOOLS_VERSION_MAJOR, STAI_TOOLS_VERSION_MINOR, STAI_TOOLS_VERSION_MICRO);
-  printf("NN model: %s\n", STAI_NETWORK_ORIGIN_MODEL_NAME);
   printf("========================================\n");
 
-  /*** NN Init ****************************************************************/
-  uint32_t pitch_nn = 0;
-  uint32_t nn_in_len = 0;
-  stai_size number_output = 0;
-  stai_ptr nn_out[STAI_NETWORK_OUT_NUM] = {0};
-  int32_t nn_out_len[STAI_NETWORK_OUT_NUM] = {0};
-
-  NeuralNetwork_init(&nn_in_len, nn_out, &number_output, nn_out_len);
-
-  /*** Post Processing Init ***************************************************/
-  stai_network_info info;
-  int ret;
-
-  ret = stai_network_get_info(network_context, &info);
-  assert(ret == STAI_SUCCESS);
-  app_postprocess_init(&pp_params, &info);
-
   /*** Camera Init ************************************************************/
+  uint32_t pitch_nn = 0;
   CameraPipeline_Init(&lcd_bg_area.XSize, &lcd_bg_area.YSize, &pitch_nn);
 
   LCD_init();
 
   /* Start LCD Display camera pipe stream */
-  CameraPipeline_DisplayPipe_Start(lcd_bg_buffer, CMW_MODE_CONTINUOUS);
+  uint32_t cam_mode = CMW_MODE_CONTINUOUS;
+  // CameraPipeline_DisplayPipe_Start(lcd_bg_buffer, CMW_MODE_CONTINUOUS);
 
   /*** App Loop ***************************************************************/
   while (1)
   {
     CameraPipeline_IspUpdate();
-
-    if (pitch_nn != (STAI_NETWORK_IN_1_WIDTH * STAI_NETWORK_IN_1_CHANNEL))
-    {
-      /* Start NN camera single capture Snapshot */
-      CameraPipeline_NNPipe_Start(dcmipp_out_nn, CMW_MODE_SNAPSHOT);
-    }
-    else
-    {
       /* Start NN camera single capture Snapshot */
       CameraPipeline_NNPipe_Start(nn_in, CMW_MODE_SNAPSHOT);
+      SCB_CleanInvalidateDCache_by_Addr(nn_in, 300 * 300 * 3);
+      // TODO: Invalidate cache?
+
+      CameraPipeline_DisplayPipe_Start(lcd_bg_buffer, CMW_MODE_SNAPSHOT);
+
+      // check if both are finished
+      while (cameraFrameReceived < 2) {};
+      cameraFrameReceived = 0;
+
+    
+    while (HAL_GPIO_ReadPin(USER1_BUTTON_GPIO_Port, USER1_BUTTON_Pin) == GPIO_PIN_SET){
+      HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
+      HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+      HAL_Delay(10);
     }
-
-    while (cameraFrameReceived == 0) {};
-    cameraFrameReceived = 0;
-
-    uint32_t ts[2] = { 0 };
-
-    if (pitch_nn != (STAI_NETWORK_IN_1_WIDTH * STAI_NETWORK_IN_1_CHANNEL))
-    {
-      SCB_InvalidateDCache_by_Addr(dcmipp_out_nn, sizeof(dcmipp_out_nn));
-    /*
-     * Crop the image if the neural network (NN) input dimensions are not a multiple of 16.
-     * The DCMIPP hardware requires the output image dimensions to be multiples of 16.
-     * This ensures compatibility with the NN input dimensions.
-     */
-      img_crop(dcmipp_out_nn, nn_in, pitch_nn, STAI_NETWORK_IN_1_WIDTH, STAI_NETWORK_IN_1_HEIGHT, STAI_NETWORK_IN_1_CHANNEL);
-      SCB_CleanInvalidateDCache_by_Addr(nn_in, nn_in_len);
-    }
-
-    ts[0] = HAL_GetTick();
-    /* run ATON inference */
-    Run_Inference(network_context);
-    ts[1] = HAL_GetTick();
-
-    int32_t ret = app_postprocess_run((void **) nn_out, number_output, &pp_output, &pp_params);
-    assert(ret == 0);
-
-    Display_NetworkOutput(&pp_output, ts[1] - ts[0]);
-    /* Discard nn_out region (used by pp_input and pp_outputs variables) to avoid Dcache evictions during nn inference */
-    for (int i = 0; i < number_output; i++)
-    {
-      void *tmp = nn_out[i];
-      SCB_InvalidateDCache_by_Addr(tmp, nn_out_len[i]);
-    }
+    HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
   }
+
 }
 
 
@@ -280,13 +217,11 @@ static void Hardware_init(void)
 
   SystemClock_Config();
 
+  GPIO_Config();
+
   CONSOLE_Config();
 
-  NPURam_enable();
-
   Fuse_Programming();
-
-  NPUCache_config();
 
   /*** External RAM and NOR Flash *********************************************/
   BSP_XSPI_RAM_Init(0);
@@ -304,73 +239,6 @@ static void Hardware_init(void)
   IAC_Config();
   set_clk_sleep_mode();
 
-}
-
-static void Run_Inference(stai_network *network_instance) {
-  stai_return_code ret;
-
-  do {
-    ret = stai_network_run(network_instance, STAI_MODE_ASYNC);
-    if (ret == STAI_RUNNING_WFE)
-      LL_ATON_OSAL_WFE();
-  } while (ret == STAI_RUNNING_WFE || ret == STAI_RUNNING_NO_WFE);
-
-  ret = stai_ext_network_new_inference(network_instance);
-  assert(ret == STAI_SUCCESS);
-}
-
-static void NeuralNetwork_init(uint32_t *nn_in_length, stai_ptr *nn_out, stai_size *number_output, int32_t nn_out_len[])
-{
-  stai_network_info info;
-  int ret;
-
-  /* initialize runtime */
-  ret = stai_runtime_init();
-  assert(ret == STAI_SUCCESS);
-  /* init model instance */
-  ret = stai_network_init(network_context);
-  assert(ret == STAI_SUCCESS);
-
-  ret = stai_network_get_info(network_context, &info);
-  assert(ret == STAI_SUCCESS);
-  assert(info.n_inputs == 1);
-  *number_output = STAI_NETWORK_OUT_NUM;
-
-  /* Get the input buffer size & address */
-  *nn_in_length = info.inputs[0].size_bytes;
-  ret = stai_network_get_inputs(network_context, &nn_in, (stai_size *)&info.n_inputs);
-  assert(ret == STAI_SUCCESS);
-
-  /* Get the output buffers size & address */
-  ret = stai_network_get_outputs(network_context, nn_out, number_output);
-  assert(ret == STAI_SUCCESS);
-  for (int i = 0; i < *number_output; i++)
-  {
-    nn_out_len[i] = info.outputs[i].size_bytes;
-  }
-}
-
-static void NPURam_enable(void)
-{
-  __HAL_RCC_NPU_CLK_ENABLE();
-  __HAL_RCC_NPU_FORCE_RESET();
-  __HAL_RCC_NPU_RELEASE_RESET();
-
-  /* Enable NPU RAMs (4x448KB) */
-  __HAL_RCC_AXISRAM3_MEM_CLK_ENABLE();
-  __HAL_RCC_AXISRAM4_MEM_CLK_ENABLE();
-  __HAL_RCC_AXISRAM5_MEM_CLK_ENABLE();
-  __HAL_RCC_AXISRAM6_MEM_CLK_ENABLE();
-  __HAL_RCC_RAMCFG_CLK_ENABLE();
-  RAMCFG_HandleTypeDef hramcfg = {0};
-  hramcfg.Instance =  RAMCFG_SRAM3_AXI;
-  HAL_RAMCFG_EnableAXISRAM(&hramcfg);
-  hramcfg.Instance =  RAMCFG_SRAM4_AXI;
-  HAL_RAMCFG_EnableAXISRAM(&hramcfg);
-  hramcfg.Instance =  RAMCFG_SRAM5_AXI;
-  HAL_RAMCFG_EnableAXISRAM(&hramcfg);
-  hramcfg.Instance =  RAMCFG_SRAM6_AXI;
-  HAL_RAMCFG_EnableAXISRAM(&hramcfg);
 }
 
 static void set_clk_sleep_mode(void)
@@ -397,11 +265,6 @@ static void set_clk_sleep_mode(void)
   __HAL_RCC_AXISRAM5_MEM_CLK_SLEEP_ENABLE();
   __HAL_RCC_AXISRAM6_MEM_CLK_SLEEP_ENABLE(); 
 
-}
-
-static void NPUCache_config(void)
-{
-  npu_cache_enable();
 }
 
 static void Security_Config(void)
@@ -439,53 +302,6 @@ void IAC_IRQHandler(void)
   }
 }
 
-/**
-* @brief Display Neural Network output classification results as well as other performances informations
-*
-* @param p_postprocess pointer to postprocessing output
-* @param inference_ms inference time in ms
-*/
-static void Display_NetworkOutput(od_pp_out_t *p_postprocess, uint32_t inference_ms)
-{
-
-  od_pp_outBuffer_t *rois = p_postprocess->pOutBuff;
-  uint32_t nb_rois = p_postprocess->nb_detect;
-  int ret;
-
-  ret = HAL_LTDC_SetAddress_NoReload(&hlcd_ltdc, (uint32_t) lcd_fg_buffer[lcd_fg_buffer_rd_idx], LTDC_LAYER_2);
-  assert(ret == HAL_OK);
-
-  /* Draw bounding boxes */
-  UTIL_LCD_FillRect(lcd_fg_area.X0, lcd_fg_area.Y0, lcd_fg_area.XSize, lcd_fg_area.YSize, 0x00000000); /* Clear previous boxes */
-  for (int32_t i = 0; i < nb_rois; i++)
-  {
-    uint32_t x0 = (uint32_t) ((rois[i].x_center - rois[i].width / 2) * ((float32_t) lcd_bg_area.XSize)) + lcd_bg_area.X0;
-    uint32_t y0 = (uint32_t) ((rois[i].y_center - rois[i].height / 2) * ((float32_t) lcd_bg_area.YSize));
-    uint32_t width = (uint32_t) (rois[i].width * ((float32_t) lcd_bg_area.XSize));
-    uint32_t height = (uint32_t) (rois[i].height * ((float32_t) lcd_bg_area.YSize));
-    /* Draw boxes without going outside of the image to avoid clearing the text area to clear the boxes */
-    x0 = x0 < lcd_bg_area.X0 + lcd_bg_area.XSize ? x0 : lcd_bg_area.X0 + lcd_bg_area.XSize - 1;
-    y0 = y0 < lcd_bg_area.Y0 + lcd_bg_area.YSize ? y0 : lcd_bg_area.Y0 + lcd_bg_area.YSize  - 1;
-    width = ((x0 + width) < lcd_bg_area.X0 + lcd_bg_area.XSize) ? width : (lcd_bg_area.X0 + lcd_bg_area.XSize - x0 - 1);
-    height = ((y0 + height) < lcd_bg_area.Y0 + lcd_bg_area.YSize) ? height : (lcd_bg_area.Y0 + lcd_bg_area.YSize - y0 - 1);
-    UTIL_LCD_DrawRect(x0, y0, width, height, colors[rois[i].class_index % NUMBER_COLORS]);
-    UTIL_LCDEx_PrintfAt(x0, y0, LEFT_MODE, classes_table[rois[i].class_index]);
-    UTIL_LCDEx_PrintfAt(-x0-width, y0, RIGHT_MODE, "%.0f%%", rois[i].conf*100.0f);
-  }
-
-  UTIL_LCD_SetBackColor(0x40000000);
-  UTIL_LCDEx_PrintfAt(0, LINE(2), CENTER_MODE, "Objects %u", nb_rois);
-  UTIL_LCDEx_PrintfAt(0, LINE(20), CENTER_MODE, "Inference: %ums", inference_ms);
-  UTIL_LCD_SetBackColor(0);
-
-  Display_WelcomeScreen();
-
-  SCB_CleanDCache_by_Addr(lcd_fg_buffer[lcd_fg_buffer_rd_idx], LCD_FG_FRAMEBUFFER_SIZE);
-  ret = HAL_LTDC_ReloadLayer(&hlcd_ltdc, LTDC_RELOAD_VERTICAL_BLANKING, LTDC_LAYER_2);
-  assert(ret == HAL_OK);
-  lcd_fg_buffer_rd_idx = 1 - lcd_fg_buffer_rd_idx;
-}
-
 static void LCD_init(void)
 {
   BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
@@ -500,19 +316,19 @@ static void LCD_init(void)
 
   BSP_LCD_ConfigLayer(0, LTDC_LAYER_1, &LayerConfig);
 
-  LayerConfig.X0 = lcd_fg_area.X0;
-  LayerConfig.Y0 = lcd_fg_area.Y0;
-  LayerConfig.X1 = lcd_fg_area.X0 + lcd_fg_area.XSize;
-  LayerConfig.Y1 = lcd_fg_area.Y0 + lcd_fg_area.YSize;
-  LayerConfig.PixelFormat = LCD_PIXEL_FORMAT_ARGB4444;
-  LayerConfig.Address = (uint32_t) lcd_fg_buffer; /* External XSPI1 PSRAM */
+  // LayerConfig.X0 = lcd_fg_area.X0;
+  // LayerConfig.Y0 = lcd_fg_area.Y0;
+  // LayerConfig.X1 = lcd_fg_area.X0 + lcd_fg_area.XSize;
+  // LayerConfig.Y1 = lcd_fg_area.Y0 + lcd_fg_area.YSize;
+  // LayerConfig.PixelFormat = LCD_PIXEL_FORMAT_ARGB4444;
+  // LayerConfig.Address = (uint32_t) lcd_fg_buffer; /* External XSPI1 PSRAM */
 
-  BSP_LCD_ConfigLayer(0, LTDC_LAYER_2, &LayerConfig);
-  UTIL_LCD_SetFuncDriver(&LCD_Driver);
-  UTIL_LCD_SetLayer(LTDC_LAYER_2);
-  UTIL_LCD_Clear(0x00000000);
-  UTIL_LCD_SetFont(&Font20);
-  UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+  // BSP_LCD_ConfigLayer(0, LTDC_LAYER_2, &LayerConfig);
+  // UTIL_LCD_SetFuncDriver(&LCD_Driver);
+  // UTIL_LCD_SetLayer(LTDC_LAYER_2);
+  // UTIL_LCD_Clear(0x00000000);
+  // UTIL_LCD_SetFont(&Font20);
+  // UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
 }
 
 /**
@@ -676,6 +492,40 @@ static void SystemClock_Config(void)
   }
 }
 
+static void GPIO_Config()
+{
+  GPIO_InitTypeDef GPIO_InitStruct_green_led = {0};
+  GPIO_InitTypeDef GPIO_InitStruct_red_led = {0};
+  GPIO_InitTypeDef GPIO_InitStruct_user1_button = {0};
+
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOG_CLK_ENABLE();
+  __HAL_RCC_GPIOO_CLK_ENABLE();
+
+  // Configure green led
+  HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
+  GPIO_InitStruct_green_led.Pin = GREEN_LED_Pin;
+  GPIO_InitStruct_green_led.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct_green_led.Pull = GPIO_NOPULL;
+  GPIO_InitStruct_green_led.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GREEN_LED_GPIO_Port, &GPIO_InitStruct_green_led);
+
+  // Configure red led
+  HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_RESET);
+  GPIO_InitStruct_red_led.Pin = RED_LED_Pin;
+  GPIO_InitStruct_red_led.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct_red_led.Pull = GPIO_NOPULL;
+  GPIO_InitStruct_red_led.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(RED_LED_GPIO_Port, &GPIO_InitStruct_red_led);
+
+  // Configure user button
+  GPIO_InitStruct_user1_button.Pin = USER1_BUTTON_Pin;
+  GPIO_InitStruct_user1_button.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct_user1_button.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct_user1_button.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(USER1_BUTTON_GPIO_Port, &GPIO_InitStruct_user1_button);
+}
+
 static void CONSOLE_Config()
 {
   GPIO_InitTypeDef gpio_init;
@@ -710,7 +560,6 @@ int _write(int file, char *ptr, int len)
   HAL_StatusTypeDef status;
 
   if ((file != STDOUT_FILENO) && (file != STDERR_FILENO)) {
-      errno = EBADF;
       return -1;
   }
 

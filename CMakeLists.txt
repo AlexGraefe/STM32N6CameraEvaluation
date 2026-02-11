@@ -55,9 +55,9 @@ set(MX_Include_Dirs
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/Include
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/DSP/Include
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/BSP/STM32N6570-DK  # needed for bsp components like flash and external RAM
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/Devices/STM32N6xx/
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Inc
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/Devices/STM32N6xx/
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Inc
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton
     ${CMAKE_CURRENT_SOURCE_DIR}/Model
 
     ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-mw-camera/ISP_Library/isp/Inc
@@ -70,15 +70,15 @@ set(MX_Include_Dirs
     ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-mw-camera/sensors/ov5640
     
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/BSP/Components/Common
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/ai-postprocessing-wrapper
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-vision-models-postprocessing/lib_vision_models_pp/Inc
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/ai-postprocessing-wrapper
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-vision-models-postprocessing/lib_vision_models_pp/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/BSP/Components/aps256xx
 
     ${CMAKE_CURRENT_SOURCE_DIR}/Utilities/lcd
 )
 
-file(GLOB AI_POSTPROCESSING_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/ai-postprocessing-wrapper/*.c")
-file(GLOB VISION_POSTPROCESSING_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-vision-models-postprocessing/lib_vision_models_pp/Src/*.c")
+    # file(GLOB AI_POSTPROCESSING_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/ai-postprocessing-wrapper/*.c")
+    # file(GLOB VISION_POSTPROCESSING_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-vision-models-postprocessing/lib_vision_models_pp/Src/*.c")
 
 # System application sources
 set(MX_Application_Src
@@ -90,8 +90,8 @@ set(MX_Application_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/app_camerapipeline.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/crop_img.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/stm32_lcd_ex.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Model/network.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Model/stai_network.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Model/network.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Model/stai_network.c
 
     ${AI_POSTPROCESSING_SRC}
     ${VISION_POSTPROCESSING_SRC}
@@ -163,29 +163,19 @@ set(STM32_Drivers_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-mw-camera/ISP_Library/isp/Src/isp_tool_com.c
 
     # all files needed for neural network inference.
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/Devices/STM32N6xx/npu_cache.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/Devices/STM32N6xx/mcu_cache.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_rt_main.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_runtime.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_cipher.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_stai_internal.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_util.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_sw_float.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_sw_integer.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_lib.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_lib_sw_operators.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_lib_sw_operators.c
-
-
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-mw-camera/ISP_Library/isp/Src/isp_algo.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-mw-camera/ISP_Library/isp/Src/isp_awb_algo.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-mw-camera/ISP_Library/isp/Src/isp_ae_algo.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-mw-camera/ISP_Library/isp/Src/isp_cmd_parser.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-mw-camera/ISP_Library/isp/Src/isp_core.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-mw-camera/ISP_Library/isp/Src/isp_services.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stm32-mw-camera/ISP_Library/isp/Src/isp_tool_com.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Utilities/lcd/stm32_lcd.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/Devices/STM32N6xx/npu_cache.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/Devices/STM32N6xx/mcu_cache.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_rt_main.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_runtime.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_cipher.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_stai_internal.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_util.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_sw_float.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_sw_integer.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_lib.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_lib_sw_operators.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/stedgeai-lib/Npu/ll_aton/ll_aton_lib_sw_operators.c
 )
 
 

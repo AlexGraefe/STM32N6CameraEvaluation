@@ -452,7 +452,6 @@ int32_t CMW_CAMERA_Start(uint32_t pipe, uint8_t *pbuff, uint32_t mode)
   {
     return CMW_ERROR_WRONG_PARAM;
   }
-
   ret = HAL_DCMIPP_CSI_PIPE_Start(&hcamera_dcmipp, pipe, DCMIPP_VIRTUAL_CHANNEL0, (uint32_t)pbuff, mode);
   if (ret != HAL_OK)
   {

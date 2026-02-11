@@ -21,7 +21,6 @@
 #include "app_camerapipeline.h"
 #include "app_config.h"
 #include "crop_img.h"
-#include "stai_network.h"
 
 
 /* Leave the driver use the default resolution */
@@ -71,7 +70,14 @@ static void DCMIPP_PipeInitDisplay(CMW_CameraInit_t *camConf, uint32_t *bg_width
   dcmipp_conf.mode = aspect_ratio;
   dcmipp_conf.enable_gamma_conversion = 0;
   uint32_t pitch;
+  // first pipeconfiguration is for the display.
   ret = CMW_CAMERA_SetPipeConfig(DCMIPP_PIPE1, &dcmipp_conf, &pitch);
+  printf("Display pipe configured: output %lux%lu, format %d, bpp %d, mode %d\r\n",
+         dcmipp_conf.output_width,
+         dcmipp_conf.output_height,
+         dcmipp_conf.output_format,
+         dcmipp_conf.output_bpp,
+         dcmipp_conf.mode);
   assert(ret == HAL_OK);
   assert(dcmipp_conf.output_width * dcmipp_conf.output_bpp == pitch);
 }
@@ -95,10 +101,10 @@ static void DCMIPP_PipeInitNn(uint32_t *pitch)
     aspect_ratio = CMW_Aspect_ratio_fit;
   }
 
-  dcmipp_conf.output_width = STAI_NETWORK_IN_1_WIDTH;
-  dcmipp_conf.output_height = STAI_NETWORK_IN_1_HEIGHT;
+  dcmipp_conf.output_width = 300;
+  dcmipp_conf.output_height = 300;
   dcmipp_conf.output_format = DCMIPP_PIXEL_PACKER_FORMAT_RGB888_YUV444_1;
-  dcmipp_conf.output_bpp = STAI_NETWORK_IN_1_CHANNEL;
+  dcmipp_conf.output_bpp = 3;
   dcmipp_conf.mode = aspect_ratio;
   dcmipp_conf.enable_swap = COLOR_MODE;
   dcmipp_conf.enable_gamma_conversion = 0;
@@ -122,10 +128,17 @@ void CameraPipeline_Init(uint32_t *lcd_bg_width, uint32_t *lcd_bg_height, uint32
   cam_conf.fps = CAMERA_FPS;
   cam_conf.mirror_flip = CAMERA_FLIP;
 
+  // this determines the connected camera sensor
   ret = CMW_CAMERA_Init(&cam_conf, NULL);
   assert(ret == CMW_ERROR_NONE);
+
+  printf("Camera initialized: %lux%lu @ %d fps\r\n",
+         cam_conf.width,
+         cam_conf.height,
+         cam_conf.fps);
+
   DCMIPP_PipeInitDisplay(&cam_conf, lcd_bg_width, lcd_bg_height);
-  DCMIPP_PipeInitNn(pitch_nn);
+  DCMIPP_PipeInitNn(pitch_nn);  // rename and use this to configure the sd card pipe.
 }
 
 void CameraPipeline_DeInit(void)
@@ -176,6 +189,10 @@ int CMW_CAMERA_PIPE_FrameEventCallback(uint32_t pipe)
     case DCMIPP_PIPE2 :
       cameraFrameReceived++;
       break;
+    case DCMIPP_PIPE1 :
+      cameraFrameReceived++;
+      break;
+      
   }
   return 0;
 }
