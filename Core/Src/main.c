@@ -18,14 +18,27 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "console_config.h"
+#include "gpio_config.h"
+#include "iac_config.h"
+#include "mylcd.h"
+#include "mpu_config.h"
+#include "sd_card.h"
+#include "security_config.h"
+#include "system_clock_config.h"
+
 #include "cmw_camera.h"
 #include "stm32n6570_discovery_bus.h"
 #include "stm32n6570_discovery_lcd.h"
 #include "stm32n6570_discovery_xspi.h"
+#include "stm32n6570_discovery_sd.h"
 #include "stm32n6570_discovery.h"
 #include "stm32_lcd.h"
 #include "app_fuseprogramming.h"
 #include "stm32_lcd_ex.h"
+
+#include "h264encapi.h"
+#include "stm32n6xx_ll_venc.h"
 
 #include "app_camerapipeline.h"
 #include "main.h"
@@ -36,10 +49,6 @@
 
 CLASSES_TABLE;
 
-#define LCD_FG_WIDTH  SCREEN_WIDTH
-#define LCD_FG_HEIGHT SCREEN_HEIGHT
-#define LCD_FG_FRAMEBUFFER_SIZE  (LCD_FG_WIDTH * LCD_FG_HEIGHT * 2)
-
 #ifndef APP_GIT_SHA1_STRING
 #define APP_GIT_SHA1_STRING "dev"
 #endif
@@ -48,51 +57,32 @@ CLASSES_TABLE;
 #endif
 
 
-typedef struct
-{
-  uint32_t X0;
-  uint32_t Y0;
-  uint32_t XSize;
-  uint32_t YSize;
-} Rectangle_TypeDef;
+// venc parts
+#define VENC_WIDTH    300
+#define VENC_HEIGHT   300
+uint16_t * pipe_buffer[2];
+volatile uint8_t buf_index_changed = 0;
+H264EncIn encIn= {0};
+H264EncOut encOut= {0};
+H264EncInst encoder= {0};
+H264EncConfig cfg= {0};
+uint32_t output_size = 0;
+uint32_t img_addr = 0;
 
-/* Lcd Background area */
-Rectangle_TypeDef lcd_bg_area = {
-#if ASPECT_RATIO_MODE == ASPECT_RATIO_CROP || ASPECT_RATIO_MODE == ASPECT_RATIO_FIT
-  .X0 = (LCD_FG_WIDTH - LCD_FG_HEIGHT) / 2,
-#else
-  .X0 = 0,
-#endif
-  .Y0 = 0,
-  .XSize = 0,
-  .YSize = 0,
-};
+EWLLinearMem_t outbuf;
+static int frame_nb = 0;
+uint32_t output_buffer[VENC_WIDTH*VENC_HEIGHT/8] __NON_CACHEABLE __attribute__((aligned(8)));
 
-/* Lcd Foreground area */
-Rectangle_TypeDef lcd_fg_area = {
-  .X0 = 0,
-  .Y0 = 0,
-  .XSize = LCD_FG_WIDTH,
-  .YSize = LCD_FG_HEIGHT,
-};
 
-#define NUMBER_COLORS 10
-const uint32_t colors[NUMBER_COLORS] = {
-    UTIL_LCD_COLOR_GREEN,
-    UTIL_LCD_COLOR_RED,
-    UTIL_LCD_COLOR_CYAN,
-    UTIL_LCD_COLOR_MAGENTA,
-    UTIL_LCD_COLOR_YELLOW,
-    UTIL_LCD_COLOR_GRAY,
-    UTIL_LCD_COLOR_BLACK,
-    UTIL_LCD_COLOR_BROWN,
-    UTIL_LCD_COLOR_BLUE,
-    UTIL_LCD_COLOR_ORANGE
-};
+// SD parts
+uint32_t sd_buf1[NB_WORDS_TO_WRITE] __NON_CACHEABLE; 
+uint32_t sd_buf2[NB_WORDS_TO_WRITE] __NON_CACHEABLE;
 
-UART_HandleTypeDef huart1;
+uint32_t * curr_buf = sd_buf1;
+size_t buf_index = 0;
+size_t SD_index = 0;
+
 volatile int32_t cameraFrameReceived;
-BSP_LCD_LayerConfig_t LayerConfig = {0};
 void* pp_input;
 
 #define ALIGN_TO_16(value) (((value) + 15) & ~15)
@@ -103,26 +93,7 @@ uint8_t secondary_pipe_buffer[1000 * 1000 * 6]; // needs to be aligned on 32 byt
 
 extern DCMIPP_HandleTypeDef hcamera_dcmipp;
 
-/* Lcd Background Buffer */
-__attribute__ ((section (".psram_bss")))
-__attribute__ ((aligned (32)))
-static uint8_t lcd_bg_buffer[800 * 480 * 2];
-/* Lcd Foreground Buffer */
-__attribute__ ((section (".psram_bss")))
-__attribute__ ((aligned (32)))
-static uint8_t lcd_fg_buffer[2][LCD_FG_WIDTH * LCD_FG_HEIGHT * 2];
-static int lcd_fg_buffer_rd_idx;
-
-static void SystemClock_Config(void);
-static void CONSOLE_Config(void);
-static void GPIO_Config(void);  
-static void LCD_init(void);
-static void Security_Config(void);
-static void set_clk_sleep_mode(void);
-static void IAC_Config(void);
-static void Display_WelcomeScreen(void);
 static void Hardware_init(void);
-
 
 /**
   * @brief  Main program
@@ -148,12 +119,11 @@ int main(void)
   printf("========================================\n");
 
   /*** Camera Init ************************************************************/
-  CameraPipeline_Init(&lcd_bg_area.XSize, &lcd_bg_area.YSize);
+  CameraPipeline_Init(&(get_lcd_lcd_bg_area()->XSize), &(get_lcd_lcd_bg_area()->YSize), VENC_WIDTH, VENC_HEIGHT);
 
   LCD_init();
 
   /* Start LCD Display camera pipe stream */
-  uint32_t cam_mode = CMW_MODE_CONTINUOUS;
   // CameraPipeline_DisplayPipe_Start(lcd_bg_buffer, CMW_MODE_CONTINUOUS);
 
   /*** App Loop ***************************************************************/
@@ -165,7 +135,7 @@ int main(void)
       SCB_CleanInvalidateDCache_by_Addr(secondary_pipe_buffer, 300 * 300 * 3);
       // TODO: Invalidate cache?
 
-      CameraPipeline_DisplayPipe_Start(lcd_bg_buffer, CMW_MODE_SNAPSHOT);
+      CameraPipeline_DisplayPipe_Start(get_lcd_bg_buffer(), CMW_MODE_SNAPSHOT);
 
       // check if both are finished
       while (cameraFrameReceived < 2) {};
@@ -174,7 +144,7 @@ int main(void)
     
     while (HAL_GPIO_ReadPin(USER1_BUTTON_GPIO_Port, USER1_BUTTON_Pin) == GPIO_PIN_SET){
       HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_RESET);
       HAL_Delay(10);
     }
     HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
@@ -186,6 +156,9 @@ int main(void)
 
 static void Hardware_init(void)
 {
+  /* enable MPU configuration to create non cacheable sections */
+  MPU_Config();
+
   /* Power on ICACHE */
   MEMSYSCTL->MSCR |= MEMSYSCTL_MSCR_ICACTIVE_Msk;
 
@@ -221,354 +194,15 @@ static void Hardware_init(void)
   BSP_XSPI_NOR_Init(0, &NOR_Init);
   BSP_XSPI_NOR_EnableMemoryMappedMode(0);
 
+  // init SD card
+  SD_Card_Init();
+
   /* Set all required IPs as secure privileged */
   Security_Config();
 
   IAC_Config();
   set_clk_sleep_mode();
 
-}
-
-static void set_clk_sleep_mode(void)
-{
-  /*** Enable sleep mode support during NPU inference *************************/
-  /* Configure peripheral clocks to remain active during sleep mode */
-  /* Keep all IP's enabled during WFE so they can wake up CPU. Fine tune
-   * this if you want to save maximum power
-   */
-  __HAL_RCC_XSPI1_CLK_SLEEP_ENABLE();    /* For display frame buffer */
-  __HAL_RCC_XSPI2_CLK_SLEEP_ENABLE();    /* For NN weights */
-  __HAL_RCC_NPU_CLK_SLEEP_ENABLE();      /* For NN inference */
-  __HAL_RCC_CACHEAXI_CLK_SLEEP_ENABLE(); /* For NN inference */
-  __HAL_RCC_LTDC_CLK_SLEEP_ENABLE();     /* For display */
-  __HAL_RCC_DMA2D_CLK_SLEEP_ENABLE();    /* For display */
-  __HAL_RCC_DCMIPP_CLK_SLEEP_ENABLE();   /* For camera configuration retention */
-  __HAL_RCC_CSI_CLK_SLEEP_ENABLE();      /* For camera configuration retention */
-
-  __HAL_RCC_FLEXRAM_MEM_CLK_SLEEP_ENABLE();
-  __HAL_RCC_AXISRAM1_MEM_CLK_SLEEP_ENABLE();
-  __HAL_RCC_AXISRAM2_MEM_CLK_SLEEP_ENABLE();
-  __HAL_RCC_AXISRAM3_MEM_CLK_SLEEP_ENABLE();
-  __HAL_RCC_AXISRAM4_MEM_CLK_SLEEP_ENABLE();
-  __HAL_RCC_AXISRAM5_MEM_CLK_SLEEP_ENABLE();
-  __HAL_RCC_AXISRAM6_MEM_CLK_SLEEP_ENABLE(); 
-
-}
-
-static void Security_Config(void)
-{
-  __HAL_RCC_RIFSC_CLK_ENABLE();
-  RIMC_MasterConfig_t RIMC_master = {0};
-  RIMC_master.MasterCID = RIF_CID_1;
-  RIMC_master.SecPriv = RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV;
-  HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_NPU, &RIMC_master);
-  HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_DMA2D, &RIMC_master);
-  HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_DCMIPP, &RIMC_master);
-  HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_LTDC1 , &RIMC_master);
-  HAL_RIF_RIMC_ConfigMasterAttributes(RIF_MASTER_INDEX_LTDC2 , &RIMC_master);
-  HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_NPU , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
-  HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_DMA2D , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
-  HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_CSI    , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
-  HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_DCMIPP , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
-  HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_LTDC   , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
-  HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_LTDCL1 , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
-  HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_LTDCL2 , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
-}
-
-static void IAC_Config(void)
-{
-/* Configure IAC to trap illegal access events */
-  __HAL_RCC_IAC_CLK_ENABLE();
-  __HAL_RCC_IAC_FORCE_RESET();
-  __HAL_RCC_IAC_RELEASE_RESET();
-}
-
-void IAC_IRQHandler(void)
-{
-  while (1)
-  {
-  }
-}
-
-static void LCD_init(void)
-{
-  BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
-
-  /* Preview layer Init */
-  LayerConfig.X0          = lcd_bg_area.X0;
-  LayerConfig.Y0          = lcd_bg_area.Y0;
-  LayerConfig.X1          = lcd_bg_area.X0 + lcd_bg_area.XSize;
-  LayerConfig.Y1          = lcd_bg_area.Y0 + lcd_bg_area.YSize;
-  LayerConfig.PixelFormat = LCD_PIXEL_FORMAT_RGB565;
-  LayerConfig.Address     = (uint32_t) lcd_bg_buffer;
-
-  BSP_LCD_ConfigLayer(0, LTDC_LAYER_1, &LayerConfig);
-
-  // LayerConfig.X0 = lcd_fg_area.X0;
-  // LayerConfig.Y0 = lcd_fg_area.Y0;
-  // LayerConfig.X1 = lcd_fg_area.X0 + lcd_fg_area.XSize;
-  // LayerConfig.Y1 = lcd_fg_area.Y0 + lcd_fg_area.YSize;
-  // LayerConfig.PixelFormat = LCD_PIXEL_FORMAT_ARGB4444;
-  // LayerConfig.Address = (uint32_t) lcd_fg_buffer; /* External XSPI1 PSRAM */
-
-  // BSP_LCD_ConfigLayer(0, LTDC_LAYER_2, &LayerConfig);
-  // UTIL_LCD_SetFuncDriver(&LCD_Driver);
-  // UTIL_LCD_SetLayer(LTDC_LAYER_2);
-  // UTIL_LCD_Clear(0x00000000);
-  // UTIL_LCD_SetFont(&Font20);
-  // UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
-}
-
-/**
- * @brief Displays a Welcome screen
- */
-static void Display_WelcomeScreen(void)
-{
-  static uint32_t t0 = 0;
-  if (t0 == 0)
-    t0 = HAL_GetTick();
-
-  if (HAL_GetTick() - t0 < 4000)
-  {
-    /* Draw logo */
-    UTIL_LCD_FillRGBRect(300, 100, (uint8_t *) stlogo, 200, 107);
-
-    /* Display welcome message */
-    UTIL_LCD_SetBackColor(0x40000000);
-    UTIL_LCDEx_PrintfAt(0, LINE(16), CENTER_MODE, "Object Detection");
-    UTIL_LCDEx_PrintfAt(0, LINE(17), CENTER_MODE, WELCOME_MSG_1);
-    UTIL_LCDEx_PrintfAt(0, LINE(18), CENTER_MODE, WELCOME_MSG_2);
-    UTIL_LCD_SetBackColor(0);
-  }
-}
-
-/**
-  * @brief  DCMIPP Clock Config for DCMIPP.
-  * @param  hdcmipp  DCMIPP Handle
-  *         Being __weak it can be overwritten by the application
-  * @retval HAL_status
-  */
-HAL_StatusTypeDef MX_DCMIPP_ClockConfig(DCMIPP_HandleTypeDef *hdcmipp)
-{
-  RCC_PeriphCLKInitTypeDef RCC_PeriphCLKInitStruct = {0};
-  HAL_StatusTypeDef ret = HAL_OK;
-
-  RCC_PeriphCLKInitStruct.PeriphClockSelection = RCC_PERIPHCLK_DCMIPP;
-  RCC_PeriphCLKInitStruct.DcmippClockSelection = RCC_DCMIPPCLKSOURCE_IC17;
-  RCC_PeriphCLKInitStruct.ICSelection[RCC_IC17].ClockSelection = RCC_ICCLKSOURCE_PLL2;
-  RCC_PeriphCLKInitStruct.ICSelection[RCC_IC17].ClockDivider = 3;
-  ret = HAL_RCCEx_PeriphCLKConfig(&RCC_PeriphCLKInitStruct);
-  if (ret)
-  {
-    return ret;
-  }
-
-  RCC_PeriphCLKInitStruct.PeriphClockSelection = RCC_PERIPHCLK_CSI;
-  RCC_PeriphCLKInitStruct.ICSelection[RCC_IC18].ClockSelection = RCC_ICCLKSOURCE_PLL1;
-  RCC_PeriphCLKInitStruct.ICSelection[RCC_IC18].ClockDivider = 40;
-  ret = HAL_RCCEx_PeriphCLKConfig(&RCC_PeriphCLKInitStruct);
-  if (ret)
-  {
-    return ret;
-  }
-
-  return ret;
-}
-
-static void SystemClock_Config(void)
-{
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef RCC_PeriphCLKInitStruct = {0};
-
-  /* Ensure VDDCORE=0.9V before increasing the system frequency */
-  BSP_SMPS_Init(SMPS_VOLTAGE_OVERDRIVE);
-
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_NONE;
-
-  /* PLL1 = 64 x 25 / 2 = 800MHz */
-  RCC_OscInitStruct.PLL1.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL1.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL1.PLLM = 2;
-  RCC_OscInitStruct.PLL1.PLLN = 25;
-  RCC_OscInitStruct.PLL1.PLLFractional = 0;
-  RCC_OscInitStruct.PLL1.PLLP1 = 1;
-  RCC_OscInitStruct.PLL1.PLLP2 = 1;
-
-  /* PLL2 = 64 x 125 / 8 = 1000MHz */
-  RCC_OscInitStruct.PLL2.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL2.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL2.PLLM = 8;
-  RCC_OscInitStruct.PLL2.PLLFractional = 0;
-  RCC_OscInitStruct.PLL2.PLLN = 125;
-  RCC_OscInitStruct.PLL2.PLLP1 = 1;
-  RCC_OscInitStruct.PLL2.PLLP2 = 1;
-
-  /* PLL3 = (64 x 225 / 8) / (1 * 2) = 900MHz */
-  RCC_OscInitStruct.PLL3.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL3.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL3.PLLM = 8;
-  RCC_OscInitStruct.PLL3.PLLN = 225;
-  RCC_OscInitStruct.PLL3.PLLFractional = 0;
-  RCC_OscInitStruct.PLL3.PLLP1 = 1;
-  RCC_OscInitStruct.PLL3.PLLP2 = 2;
-
-  /* PLL4 = (64 x 225 / 8) / (6 * 6) = 50 MHz */
-  RCC_OscInitStruct.PLL4.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL4.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL4.PLLM = 8;
-  RCC_OscInitStruct.PLL4.PLLFractional = 0;
-  RCC_OscInitStruct.PLL4.PLLN = 225;
-  RCC_OscInitStruct.PLL4.PLLP1 = 6;
-  RCC_OscInitStruct.PLL4.PLLP2 = 6;
-
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    while(1);
-  }
-
-  RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_CPUCLK | RCC_CLOCKTYPE_SYSCLK |
-                                 RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 |
-                                 RCC_CLOCKTYPE_PCLK2 | RCC_CLOCKTYPE_PCLK4 |
-                                 RCC_CLOCKTYPE_PCLK5);
-
-  /* CPU CLock (sysa_ck) = ic1_ck = PLL1 output/ic1_divider = 800 MHz */
-  RCC_ClkInitStruct.CPUCLKSource = RCC_CPUCLKSOURCE_IC1;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_IC2_IC6_IC11;
-  RCC_ClkInitStruct.IC1Selection.ClockSelection = RCC_ICCLKSOURCE_PLL1;
-  RCC_ClkInitStruct.IC1Selection.ClockDivider = 1;
-
-  /* AXI Clock (sysb_ck) = ic2_ck = PLL1 output/ic2_divider = 400 MHz */
-  RCC_ClkInitStruct.IC2Selection.ClockSelection = RCC_ICCLKSOURCE_PLL1;
-  RCC_ClkInitStruct.IC2Selection.ClockDivider = 2;
-
-  /* NPU Clock (sysc_ck) = ic6_ck = PLL2 output/ic6_divider = 1000 MHz */
-  RCC_ClkInitStruct.IC6Selection.ClockSelection = RCC_ICCLKSOURCE_PLL2;
-  RCC_ClkInitStruct.IC6Selection.ClockDivider = 1;
-
-  /* AXISRAM3/4/5/6 Clock (sysd_ck) = ic11_ck = PLL3 output/ic11_divider = 900 MHz */
-  RCC_ClkInitStruct.IC11Selection.ClockSelection = RCC_ICCLKSOURCE_PLL3;
-  RCC_ClkInitStruct.IC11Selection.ClockDivider = 1;
-
-  /* HCLK = sysb_ck / HCLK divider = 200 MHz */
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV2;
-
-  /* PCLKx = HCLK / PCLKx divider = 200 MHz */
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV1;
-  RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV1;
-  RCC_ClkInitStruct.APB5CLKDivider = RCC_APB5_DIV1;
-
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct) != HAL_OK)
-  {
-    while(1);
-  }
-
-  RCC_PeriphCLKInitStruct.PeriphClockSelection = 0;
-
-  /* XSPI1 kernel clock (ck_ker_xspi1) = HCLK = 200MHz */
-  RCC_PeriphCLKInitStruct.PeriphClockSelection |= RCC_PERIPHCLK_XSPI1;
-  RCC_PeriphCLKInitStruct.Xspi1ClockSelection = RCC_XSPI1CLKSOURCE_HCLK;
-
-  /* XSPI2 kernel clock (ck_ker_xspi1) = HCLK =  200MHz */
-  RCC_PeriphCLKInitStruct.PeriphClockSelection |= RCC_PERIPHCLK_XSPI2;
-  RCC_PeriphCLKInitStruct.Xspi2ClockSelection = RCC_XSPI2CLKSOURCE_HCLK;
-
-  if (HAL_RCCEx_PeriphCLKConfig(&RCC_PeriphCLKInitStruct) != HAL_OK)
-  {
-    while (1);
-  }
-}
-
-static void GPIO_Config()
-{
-  GPIO_InitTypeDef GPIO_InitStruct_green_led = {0};
-  GPIO_InitTypeDef GPIO_InitStruct_red_led = {0};
-  GPIO_InitTypeDef GPIO_InitStruct_user1_button = {0};
-
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
-  __HAL_RCC_GPIOO_CLK_ENABLE();
-
-  // Configure green led
-  HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
-  GPIO_InitStruct_green_led.Pin = GREEN_LED_Pin;
-  GPIO_InitStruct_green_led.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct_green_led.Pull = GPIO_NOPULL;
-  GPIO_InitStruct_green_led.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GREEN_LED_GPIO_Port, &GPIO_InitStruct_green_led);
-
-  // Configure red led
-  HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_RESET);
-  GPIO_InitStruct_red_led.Pin = RED_LED_Pin;
-  GPIO_InitStruct_red_led.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct_red_led.Pull = GPIO_NOPULL;
-  GPIO_InitStruct_red_led.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(RED_LED_GPIO_Port, &GPIO_InitStruct_red_led);
-
-  // Configure user button
-  GPIO_InitStruct_user1_button.Pin = USER1_BUTTON_Pin;
-  GPIO_InitStruct_user1_button.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct_user1_button.Pull = GPIO_PULLDOWN;
-  GPIO_InitStruct_user1_button.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(USER1_BUTTON_GPIO_Port, &GPIO_InitStruct_user1_button);
-}
-
-static void CONSOLE_Config()
-{
-  GPIO_InitTypeDef gpio_init;
-
-  __HAL_RCC_USART1_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-
- /* DISCO & NUCLEO USART1 (PE5/PE6) */
-  gpio_init.Mode      = GPIO_MODE_AF_PP;
-  gpio_init.Pull      = GPIO_PULLUP;
-  gpio_init.Speed     = GPIO_SPEED_FREQ_HIGH;
-  gpio_init.Pin       = GPIO_PIN_5 | GPIO_PIN_6;
-  gpio_init.Alternate = GPIO_AF7_USART1;
-  HAL_GPIO_Init(GPIOE, &gpio_init);
-
-  huart1.Instance          = USART1;
-  huart1.Init.BaudRate     = 115200;
-  huart1.Init.Mode         = UART_MODE_TX_RX;
-  huart1.Init.Parity       = UART_PARITY_NONE;
-  huart1.Init.WordLength   = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits     = UART_STOPBITS_1;
-  huart1.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_8;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    while (1);
-  }
-}
-
-int _write(int file, char *ptr, int len)
-{
-  HAL_StatusTypeDef status;
-
-  if ((file != STDOUT_FILENO) && (file != STDERR_FILENO)) {
-      return -1;
-  }
-
-  status = HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, ~0);
-
-  return (status == HAL_OK ? len : 0);
-}
-
-void npu_cache_enable_clocks_and_reset(void)
-{
-  __HAL_RCC_CACHEAXIRAM_MEM_CLK_ENABLE();
-  __HAL_RCC_CACHEAXI_CLK_ENABLE();
-  __HAL_RCC_CACHEAXI_FORCE_RESET();
-  __HAL_RCC_CACHEAXI_RELEASE_RESET();
-}
-
-void npu_cache_disable_clocks_and_reset(void)
-{
-  __HAL_RCC_CACHEAXIRAM_MEM_CLK_DISABLE();
-  __HAL_RCC_CACHEAXI_CLK_DISABLE();
-  __HAL_RCC_CACHEAXI_FORCE_RESET();
 }
 
 #ifdef  USE_FULL_ASSERT

@@ -82,7 +82,7 @@ static void DCMIPP_PipeInitDisplay(CMW_CameraInit_t *camConf, uint32_t *bg_width
   assert(dcmipp_conf.output_width * dcmipp_conf.output_bpp == pitch);
 }
 
-static void DCMIPP_PipeInitSecondary()
+static void DCMIPP_PipeInitSecondary(int width, int height)
 {
   CMW_Aspect_Ratio_Mode_t aspect_ratio;
   CMW_DCMIPP_Conf_t dcmipp_conf;
@@ -101,8 +101,8 @@ static void DCMIPP_PipeInitSecondary()
     aspect_ratio = CMW_Aspect_ratio_fit;
   }
 
-  dcmipp_conf.output_width = 300;
-  dcmipp_conf.output_height = 300;
+  dcmipp_conf.output_width = width;
+  dcmipp_conf.output_height = height;
   dcmipp_conf.output_format = DCMIPP_PIXEL_PACKER_FORMAT_RGB888_YUV444_1;
   dcmipp_conf.output_bpp = 3;
   dcmipp_conf.mode = aspect_ratio;
@@ -118,7 +118,7 @@ static void DCMIPP_PipeInitSecondary()
 * @param lcd_bg_width display width
 * @param lcd_bg_height display height
 */
-void CameraPipeline_Init(uint32_t *lcd_bg_width, uint32_t *lcd_bg_height)
+void CameraPipeline_Init(uint32_t *lcd_bg_width, uint32_t *lcd_bg_height, int secondary_pipe_width, int secondary_pipe_height)
 {
   int ret;
   CMW_CameraInit_t cam_conf;
@@ -138,7 +138,7 @@ void CameraPipeline_Init(uint32_t *lcd_bg_width, uint32_t *lcd_bg_height)
          cam_conf.fps);
 
   DCMIPP_PipeInitDisplay(&cam_conf, lcd_bg_width, lcd_bg_height);
-  DCMIPP_PipeInitSecondary();
+  DCMIPP_PipeInitSecondary(secondary_pipe_width, secondary_pipe_height);
 }
 
 void CameraPipeline_DeInit(void)

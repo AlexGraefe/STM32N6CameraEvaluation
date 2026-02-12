@@ -137,6 +137,16 @@ SECTIONS
     __bss_end__ = _ebss;
   } >AXISRAM1_S
 
+  .noncacheable (NOLOAD) :
+  {
+    . = ALIGN(8);
+    __snoncacheable = .;/* create symbol for start of section */
+    KEEP(*(.noncacheable))
+    . = ALIGN(8);
+    __enoncacheable = .;  /* create symbol for start of section */
+  } > RAM
+
+
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :
   {
