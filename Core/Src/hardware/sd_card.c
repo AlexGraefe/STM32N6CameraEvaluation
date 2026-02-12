@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include "sd_card.h"
 #include "stm32n6570_discovery_sd.h"
 
@@ -17,7 +19,6 @@ int erase_enc_output(void){
 
 void SD_Card_Init(void)
 {
-  printf("SD_CARD_INIT START========================================\n");
   /* Initialize SD Card */
   if (BSP_SD_Init(0) != BSP_ERROR_NONE){
     printf("error initializing SD Card\n");
@@ -31,8 +32,6 @@ void SD_Card_Init(void)
   printf("erasing flash output blocks\n");
   erase_enc_output();
   printf("Done erasing output flash blocks\n");
-
-  printf("SD_CARD_INIT END========================================\n");
 
 #if USE_SD_AS_OUTPUT
   /* wait for erase operation to be done */

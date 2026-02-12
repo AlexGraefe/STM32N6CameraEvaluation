@@ -116,12 +116,16 @@ int main(void)
   printf("Compiler: Unknown\n");
 #endif
   printf("HAL: %lu.%lu.%lu\n", __STM32N6xx_HAL_VERSION_MAIN, __STM32N6xx_HAL_VERSION_SUB1, __STM32N6xx_HAL_VERSION_SUB2);
-  printf("========================================\n");
+  printf("========================================\n\n");
 
   /*** Camera Init ************************************************************/
+  PRINTF_START("Camera Init");
   CameraPipeline_Init(&(get_lcd_lcd_bg_area()->XSize), &(get_lcd_lcd_bg_area()->YSize), VENC_WIDTH, VENC_HEIGHT);
+  PRINTF_END("Camera Init");
 
+  PRINTF_START("LCD Init");
   LCD_init();
+  PRINTF_END("LCD Init");
 
   /* Start LCD Display camera pipe stream */
   // CameraPipeline_DisplayPipe_Start(lcd_bg_buffer, CMW_MODE_CONTINUOUS);
@@ -181,10 +185,12 @@ static void Hardware_init(void)
   GPIO_Config();
 
   CONSOLE_Config();
+  printf("\n\n\n\n");
 
   Fuse_Programming();
 
   /*** External RAM and NOR Flash *********************************************/
+  PRINTF_START("External Memory Init");
   BSP_XSPI_RAM_Init(0);
   BSP_XSPI_RAM_EnableMemoryMappedMode(0);
 
@@ -193,9 +199,12 @@ static void Hardware_init(void)
   NOR_Init.TransferRate = BSP_XSPI_NOR_DTR_TRANSFER;
   BSP_XSPI_NOR_Init(0, &NOR_Init);
   BSP_XSPI_NOR_EnableMemoryMappedMode(0);
+  PRINTF_END("External Memory Init");
 
   // init SD card
+  PRINTF_START("SD Card Init");
   SD_Card_Init();
+  PRINTF_END("SD Card Init");
 
   /* Set all required IPs as secure privileged */
   Security_Config();

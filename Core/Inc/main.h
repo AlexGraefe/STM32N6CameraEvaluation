@@ -23,5 +23,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32n6xx_hal.h"
 
+#define PRINTF_START(X) printf(X); printf(" START========================================\n");
+#define PRINTF_END(X) printf(X); printf(" END========================================\n\n");
+
 #endif /* MAIN_H */
 
