@@ -97,20 +97,9 @@ void* pp_input;
 
 #define ALIGN_TO_16(value) (((value) + 15) & ~15)
 
-/* for models not multiple of 16; needs a working buffer */
-#if (STAI_NETWORK_IN_1_WIDTH * STAI_NETWORK_IN_1_CHANNEL) != ALIGN_TO_16(STAI_NETWORK_IN_1_WIDTH * STAI_NETWORK_IN_1_CHANNEL)
-#define DCMIPP_OUT_NN_LEN (ALIGN_TO_16(STAI_NETWORK_IN_1_WIDTH * STAI_NETWORK_IN_1_CHANNEL) * STAI_NETWORK_IN_1_HEIGHT)
-#define DCMIPP_OUT_NN_BUFF_LEN (DCMIPP_OUT_NN_LEN + 32 - DCMIPP_OUT_NN_LEN%32)
-
-__attribute__ ((aligned (32)))
-uint8_t dcmipp_out_nn[DCMIPP_OUT_NN_BUFF_LEN];
-#else
-uint8_t *dcmipp_out_nn;
-#endif
-
 __attribute__ ((section (".psram_bss")))
 __attribute__ ((aligned (32)))
-uint8_t nn_in[1000 * 1000 * 6]; // needs to be aligned on 32 bytes for DCMIPP output buffer
+uint8_t secondary_pipe_buffer[1000 * 1000 * 6]; // needs to be aligned on 32 bytes for DCMIPP output buffer
 
 extern DCMIPP_HandleTypeDef hcamera_dcmipp;
 
@@ -159,8 +148,7 @@ int main(void)
   printf("========================================\n");
 
   /*** Camera Init ************************************************************/
-  uint32_t pitch_nn = 0;
-  CameraPipeline_Init(&lcd_bg_area.XSize, &lcd_bg_area.YSize, &pitch_nn);
+  CameraPipeline_Init(&lcd_bg_area.XSize, &lcd_bg_area.YSize);
 
   LCD_init();
 
@@ -173,8 +161,8 @@ int main(void)
   {
     CameraPipeline_IspUpdate();
       /* Start NN camera single capture Snapshot */
-      CameraPipeline_NNPipe_Start(nn_in, CMW_MODE_SNAPSHOT);
-      SCB_CleanInvalidateDCache_by_Addr(nn_in, 300 * 300 * 3);
+      CameraPipeline_SecondaryPipe_Start(secondary_pipe_buffer, CMW_MODE_SNAPSHOT);
+      SCB_CleanInvalidateDCache_by_Addr(secondary_pipe_buffer, 300 * 300 * 3);
       // TODO: Invalidate cache?
 
       CameraPipeline_DisplayPipe_Start(lcd_bg_buffer, CMW_MODE_SNAPSHOT);

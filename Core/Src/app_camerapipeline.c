@@ -82,7 +82,7 @@ static void DCMIPP_PipeInitDisplay(CMW_CameraInit_t *camConf, uint32_t *bg_width
   assert(dcmipp_conf.output_width * dcmipp_conf.output_bpp == pitch);
 }
 
-static void DCMIPP_PipeInitNn(uint32_t *pitch)
+static void DCMIPP_PipeInitSecondary()
 {
   CMW_Aspect_Ratio_Mode_t aspect_ratio;
   CMW_DCMIPP_Conf_t dcmipp_conf;
@@ -108,7 +108,8 @@ static void DCMIPP_PipeInitNn(uint32_t *pitch)
   dcmipp_conf.mode = aspect_ratio;
   dcmipp_conf.enable_swap = COLOR_MODE;
   dcmipp_conf.enable_gamma_conversion = 0;
-  ret = CMW_CAMERA_SetPipeConfig(DCMIPP_PIPE2, &dcmipp_conf, pitch);
+  uint32_t pitch;
+  ret = CMW_CAMERA_SetPipeConfig(DCMIPP_PIPE2, &dcmipp_conf, &pitch);
   assert(ret == HAL_OK);
 }
 
@@ -116,9 +117,8 @@ static void DCMIPP_PipeInitNn(uint32_t *pitch)
 * @brief Init the camera and the 2 DCMIPP pipes
 * @param lcd_bg_width display width
 * @param lcd_bg_height display height
-* @param pitch_nn output pitch computed by the CMW
 */
-void CameraPipeline_Init(uint32_t *lcd_bg_width, uint32_t *lcd_bg_height, uint32_t *pitch_nn)
+void CameraPipeline_Init(uint32_t *lcd_bg_width, uint32_t *lcd_bg_height)
 {
   int ret;
   CMW_CameraInit_t cam_conf;
@@ -138,7 +138,7 @@ void CameraPipeline_Init(uint32_t *lcd_bg_width, uint32_t *lcd_bg_height, uint32
          cam_conf.fps);
 
   DCMIPP_PipeInitDisplay(&cam_conf, lcd_bg_width, lcd_bg_height);
-  DCMIPP_PipeInitNn(pitch_nn);  // rename and use this to configure the sd card pipe.
+  DCMIPP_PipeInitSecondary();
 }
 
 void CameraPipeline_DeInit(void)
@@ -155,11 +155,11 @@ void CameraPipeline_DisplayPipe_Start(uint8_t *display_pipe_dst, uint32_t cam_mo
   assert(ret == CMW_ERROR_NONE);
 }
 
-void CameraPipeline_NNPipe_Start(uint8_t *nn_pipe_dst, uint32_t cam_mode)
+void CameraPipeline_SecondaryPipe_Start(uint8_t *secondary_pipe_dst, uint32_t cam_mode)
 {
   int ret;
 
-  ret = CMW_CAMERA_Start(DCMIPP_PIPE2, nn_pipe_dst, cam_mode);
+  ret = CMW_CAMERA_Start(DCMIPP_PIPE2, secondary_pipe_dst, cam_mode);
   assert(ret == CMW_ERROR_NONE);
 }
 
