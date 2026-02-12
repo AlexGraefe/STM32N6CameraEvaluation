@@ -10,6 +10,8 @@
 #define NB_WORDS_TO_WRITE (NB_BYTES_TO_WRITE/4)
 #define NB_BLOCKS_ERASED  (1024*1024) /*Erase 512 MBytes = 512*1024*1024 */
 
+int save_stream(uint32_t offset, uint32_t * buf, size_t size);
+int flush_out_buffer(void);
 int erase_enc_output(void);
 void SD_Card_Init(void);
 

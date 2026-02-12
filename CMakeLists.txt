@@ -79,8 +79,9 @@ set(MX_Include_Dirs
 
     # video encoder
     ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/VideoEncoder/inc
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/source/common
-    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/source/h264
+    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/VideoEncoder/source/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/VideoEncoder/source/h264
+    ${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/VideoEncoder_EWL
 )
 
     # file(GLOB AI_POSTPROCESSING_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/ai-postprocessing-wrapper/*.c")
@@ -105,6 +106,7 @@ set(MX_Application_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/hardware/sd_card.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/hardware/security_config.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/hardware/system_clock_config.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/hardware/venc.c
 
     # ${CMAKE_CURRENT_SOURCE_DIR}/Model/network.c
     # ${CMAKE_CURRENT_SOURCE_DIR}/Model/stai_network.c
@@ -113,8 +115,9 @@ set(MX_Application_Src
     ${VISION_POSTPROCESSING_SRC}
 )
 
-file(GLOB VENC_COMMON_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/source/common/*.c")
-file(GLOB VENC_H264_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/source/h264/*.c")
+file(GLOB VENC_COMMON_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/VideoEncoder/source/common/*.c")
+file(GLOB VENC_EWL_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/VideoEncoder_EWL/*.c")
+file(GLOB VENC_H264_SRC "${CMAKE_CURRENT_SOURCE_DIR}/Middlewares/VideoEncoder/source/h264/*.c")
 
 # STM32 HAL/LL Drivers
 set(STM32_Drivers_Src
@@ -148,6 +151,7 @@ set(STM32_Drivers_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_ltdc_ex.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_sd.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_sdmmc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_ll_venc.c
 
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/BSP/STM32N6570-DK/stm32n6570_discovery_xspi.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/BSP/STM32N6570-DK/stm32n6570_discovery_bus.c
@@ -186,6 +190,7 @@ set(STM32_Drivers_Src
 
     # video encoding
     ${VENC_COMMON_SRC}
+    ${VENC_EWL_SRC}
     ${VENC_H264_SRC}
 
     # all files needed for neural network inference.

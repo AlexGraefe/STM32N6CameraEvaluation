@@ -26,7 +26,7 @@ void CameraPipeline_DeInit(void);
 void CameraPipeline_Start(void);
 void CameraPipeline_DisplayPipe_Start(uint8_t *display_pipe_dst, uint32_t cam_mode);
 void CameraPipeline_DisplayPipe_Stop(void);
-void CameraPipeline_SecondaryPipe_Start(uint8_t *secondary_pipe_dst, uint32_t cam_mode);
+void CameraPipeline_SecondaryPipe_Start(uint8_t *secondary_pipe_dst1, uint8_t *secondary_pipe_dst2, uint32_t cam_mode);
 void CameraPipeline_IspUpdate(void);
 
 #endif

@@ -29,6 +29,8 @@
 #define CAMERA_FPS 30
 
 extern int32_t cameraFrameReceived;
+extern uint8_t buf_index_changed;
+extern uint32_t img_addr;
 
 static void DCMIPP_PipeInitDisplay(CMW_CameraInit_t *camConf, uint32_t *bg_width, uint32_t *bg_height)
 {
@@ -71,7 +73,7 @@ static void DCMIPP_PipeInitDisplay(CMW_CameraInit_t *camConf, uint32_t *bg_width
   dcmipp_conf.enable_gamma_conversion = 0;
   uint32_t pitch;
   // first pipeconfiguration is for the display.
-  ret = CMW_CAMERA_SetPipeConfig(DCMIPP_PIPE1, &dcmipp_conf, &pitch);
+  ret = CMW_CAMERA_SetPipeConfig(DCMIPP_PIPE2, &dcmipp_conf, &pitch);
   printf("Display pipe configured: output %lux%lu, format %d, bpp %d, mode %d\r\n",
          dcmipp_conf.output_width,
          dcmipp_conf.output_height,
@@ -103,13 +105,13 @@ static void DCMIPP_PipeInitSecondary(int width, int height)
 
   dcmipp_conf.output_width = width;
   dcmipp_conf.output_height = height;
-  dcmipp_conf.output_format = DCMIPP_PIXEL_PACKER_FORMAT_RGB888_YUV444_1;
-  dcmipp_conf.output_bpp = 3;
+  dcmipp_conf.output_format = DCMIPP_PIXEL_PACKER_FORMAT_RGB565_1;  // DCMIPP_PIXEL_PACKER_FORMAT_RGB888_YUV444_1;
+  dcmipp_conf.output_bpp = 2;
   dcmipp_conf.mode = aspect_ratio;
   dcmipp_conf.enable_swap = COLOR_MODE;
   dcmipp_conf.enable_gamma_conversion = 0;
   uint32_t pitch;
-  ret = CMW_CAMERA_SetPipeConfig(DCMIPP_PIPE2, &dcmipp_conf, &pitch);
+  ret = CMW_CAMERA_SetPipeConfig(DCMIPP_PIPE1, &dcmipp_conf, &pitch);
   assert(ret == HAL_OK);
 }
 
@@ -151,22 +153,22 @@ void CameraPipeline_DeInit(void)
 void CameraPipeline_DisplayPipe_Start(uint8_t *display_pipe_dst, uint32_t cam_mode)
 {
   int ret;
-  ret = CMW_CAMERA_Start(DCMIPP_PIPE1, display_pipe_dst, cam_mode);
+  ret = CMW_CAMERA_Start(DCMIPP_PIPE2, display_pipe_dst, cam_mode);
   assert(ret == CMW_ERROR_NONE);
 }
 
-void CameraPipeline_SecondaryPipe_Start(uint8_t *secondary_pipe_dst, uint32_t cam_mode)
+void CameraPipeline_SecondaryPipe_Start(uint8_t *secondary_pipe_dst1, uint8_t *secondary_pipe_dst2, uint32_t cam_mode)
 {
   int ret;
-
-  ret = CMW_CAMERA_Start(DCMIPP_PIPE2, secondary_pipe_dst, cam_mode);
+  ret = CMW_CAMERA_DoubleBufferStart(DCMIPP_PIPE1, secondary_pipe_dst1, secondary_pipe_dst2, cam_mode);
+  // ret = CMW_CAMERA_Start(DCMIPP_PIPE1, secondary_pipe_dst, cam_mode);
   assert(ret == CMW_ERROR_NONE);
 }
 
 void CameraPipeline_DisplayPipe_Stop()
 {
   int ret;
-  ret = CMW_CAMERA_Suspend(DCMIPP_PIPE1);
+  ret = CMW_CAMERA_Suspend(DCMIPP_PIPE2);
   assert(ret == CMW_ERROR_NONE);
 }
 
@@ -191,6 +193,8 @@ int CMW_CAMERA_PIPE_FrameEventCallback(uint32_t pipe)
       break;
     case DCMIPP_PIPE1 :
       cameraFrameReceived++;
+      img_addr = DCMIPP->P1STM0AR;
+      buf_index_changed = 1;
       break;
       
   }

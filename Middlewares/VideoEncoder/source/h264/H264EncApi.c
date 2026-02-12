@@ -115,7 +115,7 @@
 #define APITRACEPARAM(str, val) \
   { char tmpstr[255]; sprintf(tmpstr, "  %s: %d", str, (int)val); H264EncTrace(tmpstr); }
 #else
-#define APITRACE(str)
+#define APITRACE(str) printf(str); printf("\n");
 #define APITRACEPARAM(str, val)
 #endif
 
@@ -1754,6 +1754,7 @@ H264EncRet H264EncStrmEncode(H264EncInst inst, const H264EncIn * pEncIn,
        (pEncIn->outBufSize < H264ENCSTRMENCODE_MIN_BUF) ||
        (pEncIn->codingType > H264ENC_NONIDR_INTRA_FRAME))
     {
+        printf("%d, %d, %d, %d\n", H264_BUS_ADDRESS_VALID(pEncIn->busOutBuf), pEncIn->pOutBuf, pEncIn->outBufSize, pEncIn->codingType);
         APITRACE("H264EncStrmEncode: ERROR Invalid input. Output buffer");
         return H264ENC_INVALID_ARGUMENT;
     }

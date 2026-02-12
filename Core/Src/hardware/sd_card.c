@@ -3,11 +3,57 @@
 #include "sd_card.h"
 #include "stm32n6570_discovery_sd.h"
 
+uint32_t sd_buf1[NB_WORDS_TO_WRITE] __NON_CACHEABLE; 
+uint32_t sd_buf2[NB_WORDS_TO_WRITE] __NON_CACHEABLE;
+
+uint32_t *curr_buf = sd_buf1;
+size_t buf_index = 0;
+size_t SD_index = 0;
+
+/**
+* @brief  Save an encoded buffer fragment at the given offset.
+* @param  offset
+* @param  buf  pointer to the buffer to save
+* @param  size  size (in bytes) of the buffer to save
+* @retval err error code. 0 On success.
+*/
+int save_stream(uint32_t offset, uint32_t * buf, size_t size){
+  return 1;
+  int err = 0;
+  size += 15; /* Alignment*/
+  size = size / sizeof(uint32_t);
+  
+  for(int i = 0; i<size; i++){
+    curr_buf[buf_index] = buf[i];
+    buf_index++;
+    /* upload to sd every 512 blocks to limit the impact of access latency */
+    if(buf_index >= NB_WORDS_TO_WRITE){
+      if(BSP_SD_WriteBlocks_DMA(0, curr_buf, SD_index, NB_BLOCKS_TO_WRITE)!= BSP_ERROR_NONE){
+        err = -1;
+      }
+      SD_index+=NB_BLOCKS_TO_WRITE;
+      /* swap buffers */
+      buf_index = 0;
+      curr_buf = (curr_buf == sd_buf1)?sd_buf2:sd_buf1;
+    }
+  }
+  return err;
+}
+
+int flush_out_buffer(void){
+  return 1;
+  if(BSP_SD_WriteBlocks(0, (uint32_t *) curr_buf, SD_index, NB_BLOCKS_TO_WRITE)!= BSP_ERROR_NONE){
+        return -1;
+      }
+  return 0;
+}
+
 /**
 * @brief  erases data in output medium
 * @retval err error code. 0 On success.
 */
 int erase_enc_output(void){
+  return 1;
   /* Erase beginning of SDCard */
   if (BSP_SD_Erase(0, 0, NB_BLOCKS_ERASED) != BSP_ERROR_NONE)
   {

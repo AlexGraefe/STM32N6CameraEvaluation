@@ -19,11 +19,9 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32n6xx_ll_venc.h"
 #include "stm32n6xx_ll_bus.h"
-#ifdef  USE_FULL_ASSERT
-#include "stm32_assert.h"
-#else
+#ifndef assert_param
 #define assert_param(expr) ((void)0U)
-#endif /* USE_FULL_ASSERT */
+#endif
 
 
 /** @addtogroup STM32N6xx_LL_Driver

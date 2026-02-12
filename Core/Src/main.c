@@ -26,6 +26,7 @@
 #include "sd_card.h"
 #include "security_config.h"
 #include "system_clock_config.h"
+#include "venc.h"
 
 #include "cmw_camera.h"
 #include "stm32n6570_discovery_bus.h"
@@ -58,38 +59,28 @@ CLASSES_TABLE;
 
 
 // venc parts
+#define FRAMERATE 30
 #define VENC_WIDTH    300
 #define VENC_HEIGHT   300
 uint16_t * pipe_buffer[2];
 volatile uint8_t buf_index_changed = 0;
-H264EncIn encIn= {0};
-H264EncOut encOut= {0};
-H264EncInst encoder= {0};
-H264EncConfig cfg= {0};
-uint32_t output_size = 0;
 uint32_t img_addr = 0;
 
-EWLLinearMem_t outbuf;
-static int frame_nb = 0;
-uint32_t output_buffer[VENC_WIDTH*VENC_HEIGHT/8] __NON_CACHEABLE __attribute__((aligned(8)));
+volatile uint32_t output_buffer[VENC_WIDTH*VENC_HEIGHT/8] __attribute__((aligned(8))); // __NON_CACHEABLE __attribute__((aligned(8)));
 
-
-// SD parts
-uint32_t sd_buf1[NB_WORDS_TO_WRITE] __NON_CACHEABLE; 
-uint32_t sd_buf2[NB_WORDS_TO_WRITE] __NON_CACHEABLE;
-
-uint32_t * curr_buf = sd_buf1;
-size_t buf_index = 0;
-size_t SD_index = 0;
 
 volatile int32_t cameraFrameReceived;
 void* pp_input;
 
 #define ALIGN_TO_16(value) (((value) + 15) & ~15)
 
-__attribute__ ((section (".psram_bss")))
+// // __attribute__ ((section (".psram_bss")))
 __attribute__ ((aligned (32)))
-uint8_t secondary_pipe_buffer[1000 * 1000 * 6]; // needs to be aligned on 32 bytes for DCMIPP output buffer
+uint8_t secondary_pipe_buffer1[300 * 300 * 3]; // needs to be aligned on 32 bytes for DCMIPP output buffer
+
+// // __attribute__ ((section (".psram_bss")))
+__attribute__ ((aligned (32)))
+uint8_t secondary_pipe_buffer2[300 * 300 * 3]; // needs to be aligned on 32 bytes for DCMIPP output buffer
 
 extern DCMIPP_HandleTypeDef hcamera_dcmipp;
 
@@ -118,7 +109,6 @@ int main(void)
   printf("HAL: %lu.%lu.%lu\n", __STM32N6xx_HAL_VERSION_MAIN, __STM32N6xx_HAL_VERSION_SUB1, __STM32N6xx_HAL_VERSION_SUB2);
   printf("========================================\n\n");
 
-  /*** Camera Init ************************************************************/
   PRINTF_START("Camera Init");
   CameraPipeline_Init(&(get_lcd_lcd_bg_area()->XSize), &(get_lcd_lcd_bg_area()->YSize), VENC_WIDTH, VENC_HEIGHT);
   PRINTF_END("Camera Init");
@@ -127,36 +117,65 @@ int main(void)
   LCD_init();
   PRINTF_END("LCD Init");
 
-  /* Start LCD Display camera pipe stream */
-  // CameraPipeline_DisplayPipe_Start(lcd_bg_buffer, CMW_MODE_CONTINUOUS);
+  PRINTF_START("VENC Init");
+  LL_VENC_Init();
+  encoder_prepare(VENC_WIDTH, VENC_HEIGHT, FRAMERATE, output_buffer);
+  PRINTF_END("VENC Init");
 
-  /*** App Loop ***************************************************************/
-  while (1)
+  CameraPipeline_DisplayPipe_Start(get_lcd_bg_buffer(), CMW_MODE_CONTINUOUS);
+  CameraPipeline_SecondaryPipe_Start(secondary_pipe_buffer1, secondary_pipe_buffer2, CMW_MODE_CONTINUOUS);
+
+  while (!enc_end_reached())
   {
+    // if(BSP_CAMERA_BackgroundProcess() != BSP_ERROR_NONE)
+    // {
+    //   printf("Error in BSP image processing\n");
+    // }
     CameraPipeline_IspUpdate();
-      /* Start NN camera single capture Snapshot */
-      CameraPipeline_SecondaryPipe_Start(secondary_pipe_buffer, CMW_MODE_SNAPSHOT);
-      SCB_CleanInvalidateDCache_by_Addr(secondary_pipe_buffer, 300 * 300 * 3);
-      // TODO: Invalidate cache?
+    while (!buf_index_changed) {}
+    /* new frame available */
+    buf_index_changed = 0;
+    Encode_frame(img_addr);
+  }
+  /* after encoding a certain nb of frames, end program */
+  encoder_end();
+  flush_out_buffer();
 
-      CameraPipeline_DisplayPipe_Start(get_lcd_bg_buffer(), CMW_MODE_SNAPSHOT);
+    while (1)
+    {
+      CameraPipeline_IspUpdate();
+        // check if both are finished
+        while (cameraFrameReceived < 2) {};
+        cameraFrameReceived = 0;
+    }
 
-      // check if both are finished
-      while (cameraFrameReceived < 2) {};
-      cameraFrameReceived = 0;
+
+  // while (1)
+  // {
+  //   CameraPipeline_IspUpdate();
+  //     /* Start NN camera single capture Snapshot */
+  //     CameraPipeline_SecondaryPipe_Start(secondary_pipe_buffer1, secondary_pipe_buffer2, CMW_MODE_SNAPSHOT);
+  //     SCB_CleanInvalidateDCache_by_Addr(secondary_pipe_buffer1, 300 * 300 * 3);  
+  //     SCB_CleanInvalidateDCache_by_Addr(secondary_pipe_buffer2, 300 * 300 * 3);  
+  //     // TODO: Invalidate cache?
+
+  //     CameraPipeline_DisplayPipe_Start(get_lcd_bg_buffer(), CMW_MODE_SNAPSHOT);
+
+  //     // check if both are finished
+  //     while (cameraFrameReceived < 2) {};
+  //     cameraFrameReceived = 0;
 
     
-    while (HAL_GPIO_ReadPin(USER1_BUTTON_GPIO_Port, USER1_BUTTON_Pin) == GPIO_PIN_SET){
-      HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_RESET);
-      HAL_Delay(10);
-    }
-    HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
-  }
+  //   while (HAL_GPIO_ReadPin(USER1_BUTTON_GPIO_Port, USER1_BUTTON_Pin) == GPIO_PIN_SET){
+  //     HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
+  //     HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_RESET);
+  //     HAL_Delay(10);
+  //   }
+  //   HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
+  //   HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+  // }
 
 }
-
 
 static void Hardware_init(void)
 {
@@ -203,7 +222,7 @@ static void Hardware_init(void)
 
   // init SD card
   PRINTF_START("SD Card Init");
-  SD_Card_Init();
+  // SD_Card_Init();
   PRINTF_END("SD Card Init");
 
   /* Set all required IPs as secure privileged */

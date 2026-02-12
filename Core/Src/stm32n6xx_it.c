@@ -151,6 +151,7 @@ void CSI_IRQHandler(void)
   HAL_DCMIPP_CSI_IRQHandler(hcamera_dcmipp);
 }
 
+
 void DCMIPP_IRQHandler(void)
 {
   DCMIPP_HandleTypeDef *hcamera_dcmipp = CMW_CAMERA_GetDCMIPPHandle();
