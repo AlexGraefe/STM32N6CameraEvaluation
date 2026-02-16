@@ -132,6 +132,7 @@ u32 H264CabacInit(u32 * contextTable, u32 cabac_init_idc)
     }
 
     SwapEndianess(contextTable, contextTable, 52 * 2 * 464);
+    printf("finished cabc\n");
     return 0;
 }
 

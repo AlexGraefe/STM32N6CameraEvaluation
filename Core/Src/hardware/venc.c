@@ -38,11 +38,19 @@ int Encode_frame(uint32_t img_addr){
   {
   case H264ENC_FRAME_READY:
     /*save stream */
+    // printf("encoded frame %d - size : %d bytes\n", frame_nb, encOut.streamSize);
+
     if (save_stream(output_size, encIn.pOutBuf,  encOut.streamSize))
     {
       printf("error saving stream frame %d\n", frame_nb);
       return -1;
     }
+    // for (int i = 0; i < encOut.streamSize; i++) {
+    //   printf("%02x, ", ((uint8_t*)encIn.pOutBuf)[i]);
+    //   if ((i + 1) % 16 == 0) printf("\n");
+    // }
+    // printf("\n");
+    // while (1) {};
     output_size += encOut.streamSize;
     break;
   case H264ENC_SYSTEM_ERROR:
@@ -119,8 +127,13 @@ int encoder_prepare(uint32_t width, uint32_t height, int framerate, uint32_t * o
     printf("error starting stream %d\n", ret);
     return -1;
   }
-
+  printf("stream started. saved %d bytes\n", encOut.streamSize);
+    //   for (int i = 0; i < encOut.streamSize; i++) {
+    //   printf("%02x, ", ((uint8_t*)encIn.pOutBuf)[i]);
+    //   if ((i + 1) % 16 == 0) printf("\n");
+    // }
   /* save the stream header */
+  printf("%d\n", encOut.streamSize);
   if (save_stream(output_size, encIn.pOutBuf,  encOut.streamSize))
   {
     printf("error saving stream\n");
@@ -136,6 +149,7 @@ int encoder_end(void){
   printf("done encoding %d frames. size : %d - Blocks : %d\n",frame_nb ,output_size, (output_size+511)/512);
   if (ret != H264ENC_OK)
   {
+    printf("error ending encoder %d\n", ret);
     return -1;
   }
   else

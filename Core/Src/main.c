@@ -60,13 +60,13 @@ CLASSES_TABLE;
 
 // venc parts
 #define FRAMERATE 30
-#define VENC_WIDTH    300
-#define VENC_HEIGHT   300
+#define VENC_WIDTH    480
+#define VENC_HEIGHT   480
 uint16_t * pipe_buffer[2];
 volatile uint8_t buf_index_changed = 0;
 uint32_t img_addr = 0;
 
-volatile uint32_t output_buffer[VENC_WIDTH*VENC_HEIGHT/8] __attribute__((aligned(8))); // __NON_CACHEABLE __attribute__((aligned(8)));
+uint32_t output_buffer[VENC_WIDTH*VENC_HEIGHT/8] __NON_CACHEABLE __attribute__((aligned(8))); // __NON_CACHEABLE
 
 
 volatile int32_t cameraFrameReceived;
@@ -74,17 +74,18 @@ void* pp_input;
 
 #define ALIGN_TO_16(value) (((value) + 15) & ~15)
 
-// // __attribute__ ((section (".psram_bss")))
-__attribute__ ((aligned (32)))
-uint8_t secondary_pipe_buffer1[300 * 300 * 3]; // needs to be aligned on 32 bytes for DCMIPP output buffer
+// __attribute__ ((section (".psram_bss")))
+// __attribute__ ((aligned (32)))
+uint8_t secondary_pipe_buffer1[VENC_WIDTH * VENC_HEIGHT * 2] __NON_CACHEABLE __attribute__ ((aligned (32))) = {0}; // needs to be aligned on 32 bytes for DCMIPP output buffer
 
-// // __attribute__ ((section (".psram_bss")))
-__attribute__ ((aligned (32)))
-uint8_t secondary_pipe_buffer2[300 * 300 * 3]; // needs to be aligned on 32 bytes for DCMIPP output buffer
+// __attribute__ ((section (".psram_bss")))
+// __attribute__ ((aligned (32)))
+// uint8_t secondary_pipe_buffer2[VENC_WIDTH * VENC_HEIGHT * 2] __NON_CACHEABLE __attribute__ ((aligned (32))); // needs to be aligned on 32 bytes for DCMIPP output buffer
 
 extern DCMIPP_HandleTypeDef hcamera_dcmipp;
 
 static void Hardware_init(void);
+static void NPURam_enable(void);
 
 /**
   * @brief  Main program
@@ -119,11 +120,18 @@ int main(void)
 
   PRINTF_START("VENC Init");
   LL_VENC_Init();
+  printf("---\n");
   encoder_prepare(VENC_WIDTH, VENC_HEIGHT, FRAMERATE, output_buffer);
   PRINTF_END("VENC Init");
 
   CameraPipeline_DisplayPipe_Start(get_lcd_bg_buffer(), CMW_MODE_CONTINUOUS);
-  CameraPipeline_SecondaryPipe_Start(secondary_pipe_buffer1, secondary_pipe_buffer2, CMW_MODE_CONTINUOUS);
+  // CameraPipeline_SecondaryPipe_Start(secondary_pipe_buffer1,secondary_pipe_buffer2, CMW_MODE_CONTINUOUS);  // secondary_pipe_buffer1, secondary_pipe_buffer2, CMW_MODE_CONTINUOUS);
+  for (uint32_t i = 0; i < VENC_WIDTH*VENC_HEIGHT*2; i++) {
+    secondary_pipe_buffer1[i] = 0;
+    // secondary_pipe_buffer2[i] = 0;
+  }
+  
+  img_addr = secondary_pipe_buffer1;
 
   while (!enc_end_reached())
   {
@@ -132,14 +140,27 @@ int main(void)
     //   printf("Error in BSP image processing\n");
     // }
     CameraPipeline_IspUpdate();
-    while (!buf_index_changed) {}
+    int asd = 0;
+    // while (!buf_index_changed) {
+    // };
     /* new frame available */
     buf_index_changed = 0;
+    // for (uint32_t la = 0; la < 10; la++) {
+    //   printf("%02x ", ((uint8_t *) img_addr)[la]);
+    // }
+    // printf("\n");
     Encode_frame(img_addr);
+    HAL_Delay(10);
   }
   /* after encoding a certain nb of frames, end program */
-  encoder_end();
-  flush_out_buffer();
+
+  if (encoder_end()) {
+    printf("Error ending encoder\n");
+  }
+  if (flush_out_buffer()) {
+    printf("Error flushing output buffer\n");
+  }
+  printf("finished encoding\n");
 
     while (1)
     {
@@ -188,7 +209,7 @@ static void Hardware_init(void)
   /* Set back system and CPU clock source to HSI */
   __HAL_RCC_CPUCLK_CONFIG(RCC_CPUCLKSOURCE_HSI);
   __HAL_RCC_SYSCLK_CONFIG(RCC_SYSCLKSOURCE_HSI);
-
+  SystemCoreClockUpdate();
   HAL_Init();
 
   SCB_EnableICache();
@@ -222,8 +243,10 @@ static void Hardware_init(void)
 
   // init SD card
   PRINTF_START("SD Card Init");
-  // SD_Card_Init();
+  SD_Card_Init();
   PRINTF_END("SD Card Init");
+
+  NPURam_enable();
 
   /* Set all required IPs as secure privileged */
   Security_Config();
@@ -232,6 +255,30 @@ static void Hardware_init(void)
   set_clk_sleep_mode();
 
 }
+
+static void NPURam_enable(void)
+{
+  __HAL_RCC_NPU_CLK_ENABLE();
+  __HAL_RCC_NPU_FORCE_RESET();
+  __HAL_RCC_NPU_RELEASE_RESET();
+
+  /* Enable NPU RAMs (4x448KB) */
+  __HAL_RCC_AXISRAM3_MEM_CLK_ENABLE();
+  __HAL_RCC_AXISRAM4_MEM_CLK_ENABLE();
+  __HAL_RCC_AXISRAM5_MEM_CLK_ENABLE();
+  __HAL_RCC_AXISRAM6_MEM_CLK_ENABLE();
+  __HAL_RCC_RAMCFG_CLK_ENABLE();
+  RAMCFG_HandleTypeDef hramcfg = {0};
+  hramcfg.Instance =  RAMCFG_SRAM3_AXI;
+  HAL_RAMCFG_EnableAXISRAM(&hramcfg);
+  hramcfg.Instance =  RAMCFG_SRAM4_AXI;
+  HAL_RAMCFG_EnableAXISRAM(&hramcfg);
+  hramcfg.Instance =  RAMCFG_SRAM5_AXI;
+  HAL_RAMCFG_EnableAXISRAM(&hramcfg);
+  hramcfg.Instance =  RAMCFG_SRAM6_AXI;
+  HAL_RAMCFG_EnableAXISRAM(&hramcfg);
+}
+
 
 #ifdef  USE_FULL_ASSERT
 

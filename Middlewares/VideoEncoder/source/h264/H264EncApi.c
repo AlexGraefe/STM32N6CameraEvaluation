@@ -1497,7 +1497,6 @@ H264EncRet H264EncStrmStart(H264EncInst inst, const H264EncIn * pEncIn,
         APITRACE("H264EncStrmStart: ERROR Invalid input. Stream buffer");
         return H264ENC_INVALID_ARGUMENT;
     }
-
     /* Set stream buffer, the size has been checked */
     (void) H264SetBuffer(&pEncInst->stream, (u8 *) pEncIn->pOutBuf,
                          (u32) pEncIn->outBufSize);
@@ -1536,7 +1535,6 @@ H264EncRet H264EncStrmStart(H264EncInst inst, const H264EncIn * pEncIn,
         H264AccessUnitDelimiter(&pEncInst->stream, pEncInst->seqParameterSet.byteStream, 2);
         H264AddNaluSize(pEncOut, pEncInst->stream.byteCnt - tmp);
     }
-
     /* update VUI */
     if(rc->sei.enabled == ENCHW_YES)
     {
@@ -1553,16 +1551,18 @@ H264EncRet H264EncStrmStart(H264EncInst inst, const H264EncIn * pEncIn,
         H264SpsSetVuiHrdCpbSize(&pEncInst->seqParameterSet,
                                 rc->virtualBuffer.bufferSize);
     }
-
+            printf("-\n");
     /* Initialize cabac context tables for HW */
     if (pEncInst->picParameterSet.enableCabac >= 1)
     {
+                    printf("-\n");
         if (H264CabacInit(pEncInst->asic.cabacCtx.virtualAddress,
                           pEncInst->slice.cabacInitIdc) != 0)
         {
             APITRACE("H264EncStrmStart: ERROR in CABAC Context Init");
             return H264ENC_MEMORY_ERROR;
         }
+        printf("ll\n");
     }
 
     /* Use the first frame QP in the PPS */
@@ -1574,7 +1574,7 @@ H264EncRet H264EncStrmStart(H264EncInst inst, const H264EncIn * pEncIn,
         pEncInst->picParameterSet.entropyCodingMode = ENCHW_NO;
     else
         pEncInst->picParameterSet.entropyCodingMode = ENCHW_YES;
-
+            printf("-\n");
     /* Init SEI */
     H264InitSei(&rc->sei, pEncInst->seqParameterSet.byteStream,
                 rc->hrd, rc->outRateNum, rc->outRateDenom);
@@ -1586,6 +1586,7 @@ H264EncRet H264EncStrmStart(H264EncInst inst, const H264EncIn * pEncIn,
         H264AddNaluSize(pEncOut, pEncInst->stream.byteCnt-tmp);
     }
     tmp = pEncInst->stream.byteCnt;
+                printf("-\n");
 
     H264SeqParameterSet(&pEncInst->stream, &pEncInst->seqParameterSet, ENCHW_YES);
     H264AddNaluSize(pEncOut, pEncInst->stream.byteCnt-tmp);
@@ -1621,7 +1622,7 @@ H264EncRet H264EncStrmStart(H264EncInst inst, const H264EncIn * pEncIn,
         APITRACE("H264EncStrmStart: ERROR Output buffer too small");
         return H264ENC_OUTPUT_BUFFER_OVERFLOW;
     }
-
+                printf("-\n");
     /* Bytes generated */
     pEncOut->streamSize = pEncInst->stream.byteCnt;
 

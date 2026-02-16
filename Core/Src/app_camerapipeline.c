@@ -140,7 +140,7 @@ void CameraPipeline_Init(uint32_t *lcd_bg_width, uint32_t *lcd_bg_height, int se
          cam_conf.fps);
 
   DCMIPP_PipeInitDisplay(&cam_conf, lcd_bg_width, lcd_bg_height);
-  DCMIPP_PipeInitSecondary(secondary_pipe_width, secondary_pipe_height);
+  // DCMIPP_PipeInitSecondary(secondary_pipe_width, secondary_pipe_height);
 }
 
 void CameraPipeline_DeInit(void)
@@ -194,6 +194,7 @@ int CMW_CAMERA_PIPE_FrameEventCallback(uint32_t pipe)
     case DCMIPP_PIPE1 :
       cameraFrameReceived++;
       img_addr = DCMIPP->P1STM0AR;
+      // printf("%d, %d\n", buf_index_changed, cameraFrameReceived);
       buf_index_changed = 1;
       break;
       

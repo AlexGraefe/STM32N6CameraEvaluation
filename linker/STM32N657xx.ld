@@ -5,13 +5,14 @@ ENTRY(Reset_Handler)
 _estack = ORIGIN(AXISRAM1_S) + LENGTH(AXISRAM1_S); /* end of "AXISRAM1_S" Ram type memory */
 _sstack = _estack - _Min_Stack_Size;
 
-_Min_Heap_Size = 0x200; /* required amount of heap  */
+_Min_Heap_Size = 0x50000; /* required amount of heap */
 _Min_Stack_Size = 0x4000; /* required amount of stack */
 
 /* Memories definition */
 MEMORY
 {
   AXISRAM1_S (xrw)      : ORIGIN = 0x34000400, LENGTH =  1023K
+  RAM        (rw)       : ORIGIN = 0x341B7000,   LENGTH = 2340K
   PSRAM (xrw)           : ORIGIN = 0x91000000, LENGTH =  16M
 }
 
@@ -148,12 +149,29 @@ SECTIONS
 
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
-  ._user_heap_stack :
+  /*._user_heap_stack :
   {
     . = ALIGN(8);
     PROVIDE ( end = . );
     PROVIDE ( _end = . );
     . = . + _Min_Heap_Size;
+    . = . + _Min_Stack_Size;
+    . = ALIGN(8);
+  } >AXISRAM1_S*/
+
+  /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
+  ._user_heap (NOLOAD) :
+  {
+    . = ALIGN(8);
+    PROVIDE ( end = . );
+    PROVIDE ( _end = . );
+    . = . + _Min_Heap_Size;
+    . = ALIGN(8);
+  } >AXISRAM1_S
+
+  ._user_stack :
+  {
+    . = ALIGN(8);
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >AXISRAM1_S

@@ -18,7 +18,6 @@ size_t SD_index = 0;
 * @retval err error code. 0 On success.
 */
 int save_stream(uint32_t offset, uint32_t * buf, size_t size){
-  return 1;
   int err = 0;
   size += 15; /* Alignment*/
   size = size / sizeof(uint32_t);
@@ -28,7 +27,9 @@ int save_stream(uint32_t offset, uint32_t * buf, size_t size){
     buf_index++;
     /* upload to sd every 512 blocks to limit the impact of access latency */
     if(buf_index >= NB_WORDS_TO_WRITE){
-      if(BSP_SD_WriteBlocks_DMA(0, curr_buf, SD_index, NB_BLOCKS_TO_WRITE)!= BSP_ERROR_NONE){
+      int32_t res = BSP_SD_WriteBlocks_DMA(0, curr_buf, SD_index, NB_BLOCKS_TO_WRITE);
+      if(res!= BSP_ERROR_NONE){
+        printf("%d\n", res);
         err = -1;
       }
       SD_index+=NB_BLOCKS_TO_WRITE;
@@ -41,7 +42,6 @@ int save_stream(uint32_t offset, uint32_t * buf, size_t size){
 }
 
 int flush_out_buffer(void){
-  return 1;
   if(BSP_SD_WriteBlocks(0, (uint32_t *) curr_buf, SD_index, NB_BLOCKS_TO_WRITE)!= BSP_ERROR_NONE){
         return -1;
       }
@@ -53,7 +53,6 @@ int flush_out_buffer(void){
 * @retval err error code. 0 On success.
 */
 int erase_enc_output(void){
-  return 1;
   /* Erase beginning of SDCard */
   if (BSP_SD_Erase(0, 0, NB_BLOCKS_ERASED) != BSP_ERROR_NONE)
   {

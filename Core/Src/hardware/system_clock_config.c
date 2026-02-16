@@ -101,10 +101,17 @@ void SystemClock_Config(void)
   RCC_PeriphCLKInitStruct.PeriphClockSelection |= RCC_PERIPHCLK_XSPI2;
   RCC_PeriphCLKInitStruct.Xspi2ClockSelection = RCC_XSPI2CLKSOURCE_HCLK;
 
+  RCC_PeriphCLKInitStruct.PeriphClockSelection = RCC_PERIPHCLK_SDMMC2;
+  RCC_PeriphCLKInitStruct.Sdmmc2ClockSelection = RCC_SDMMC2CLKSOURCE_IC4;
+  RCC_PeriphCLKInitStruct.ICSelection[RCC_IC4].ClockSelection = RCC_ICCLKSOURCE_PLL1;
+  RCC_PeriphCLKInitStruct.ICSelection[RCC_IC4].ClockDivider = 6;
+
   if (HAL_RCCEx_PeriphCLKConfig(&RCC_PeriphCLKInitStruct) != HAL_OK)
   {
     while (1);
   }
+
+  __HAL_RCC_SYSCFG_CLK_ENABLE();
 }
 
 void set_clk_sleep_mode(void)

@@ -367,6 +367,7 @@ __weak i32 EWLMallocLinear(const void *instance, u32 size, EWLLinearMem_t *info)
 #if (EWL_ALLOC_API == EWL_USE_MALLOC_MM)
   /* allocate using malloc and check return */
   inst->chunks[inst->totalChunks] = (u32 *)malloc(size_aligned);
+  printf("size aligned : %d\n", size_aligned);
   if (inst->chunks[inst->totalChunks] == NULL)
   {
     return EWL_ERROR;
